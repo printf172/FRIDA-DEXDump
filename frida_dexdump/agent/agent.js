@@ -356,8 +356,12 @@
             value: true
         });
 
+        /**
+         * 通过 map_off 找到 DEX 的 map_list， 通过解析它，并得到类型为 TYPE_MAP_LIST 的条目。
+         * 理论上讲，这个条目里面的索引值应该要与 map_off 一致，那么通过校验这两个地方，就可以实现一个更加精确的验证方案。
+         */
         function verify_by_maps(dexptr, mapsptr) {
-            var maps_offset = dexptr.add(0x34).readUInt();
+            var maps_offset = dexptr.add(0x34).readUInt();//+0x34 是 map_off ，也就是 map 段的偏移位置，一般情况下 map 段都是在 DEX 文件的最末尾，与 file_size 
             var maps_size = mapsptr.readUInt();
 
             for (var i = 0; i < maps_size; i++) {
@@ -375,8 +379,11 @@
             return false;
         }
 
+        /**
+         * 最后通过减掉起始地址，就可以得到真正的文件大小了
+         */
         function get_dex_real_size(dexptr, range_base, range_end) {
-            var dex_size = dexptr.add(0x20).readUInt();
+            var dex_size = dexptr.add(0x20).readUInt();//DEX 文件头 +0x20 的位置，是 file_size， 也就是这个 DEX 文件的总大小
             var maps_address = get_maps_address(dexptr, range_base, range_end);
 
             if (!maps_address) {
@@ -408,6 +415,9 @@
             return maps_address;
         }
 
+        /**
+         * 计算 map_list 结束的位置:
+         */
         function get_maps_end(maps, range_base, range_end) {
             var maps_size = maps.readUInt();
 
@@ -428,7 +438,7 @@
             if (range != null) {
                 var range_end = range.base.add(range.size); // verify header_size
 
-                if (dexptr.add(0x70) > range_end) {
+                if (dexptr.add(0x70) > range_end) {//这段内存必须大于 0x60，因为 DEX 文件头的大小是 0x70，要是头都放不下，就更不要说其他的了。
                     return false;
                 }
 
@@ -447,6 +457,10 @@
 
                     return verify_by_maps(dexptr, maps_address);
                 } else {
+                    /**
+                     * +0x3C 是 string_ids_off， 也就是 string_ids 段的偏移位置，
+                     * 而这个段一般是紧随于 DEX 头后面，而 DEX 头的大小是 0x70 = 112，所以这个一般来说也是固定的。
+                     */
                     return dexptr.add(0x3C).readUInt() === 0x70;
                 }
             }
@@ -465,7 +479,7 @@
 
         function searchDex(deepSearch) {
             var result = [];
-            Process.enumerateRanges('r--').forEach(function (range) {
+            Process.enumerateRanges('r--').forEach(function (range) {//遍历当前进程中所有可以读的内存段，毕竟不能读的内存区域是不能被 VM 执行的 (Native 可以)
                 try {
                     Memory.scanSync(range.base, range.size, "64 65 78 0a 30 ?? ?? 00").forEach(function (match) {
                         if (range.file && range.file.path && (range.file.path.startsWith("/data/dalvik-cache/") || range.file.path.startsWith("/system/"))) {
@@ -497,7 +511,7 @@
                                 return;
                             }
 
-                            if (dex_base.readCString(4) != "dex\n" && verify(dex_base, range, true)) {
+                            if (dex_base.readCString(4) != "dex\n" && verify(dex_base, range, true)) {//从这段内存开始的地方读 4 个字节的字符串，如果没有 dex 的魔术头，再接着往下看。
                                 var real_dex_size = get_dex_real_size(dex_base, range.base, range.base.add(range.size));
 
                                 if (!verify_ids_off(dex_base, real_dex_size)) {
